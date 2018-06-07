@@ -35,11 +35,11 @@ void* message_handler(void* arg){
 	// update ballotnum
 	ballot_num[0] = their_ballotnum;	
 
-	// build reply message
+	// build reply message: "Reply <bal> <bal_id> <acceptnum> <acceptid> <acceptval>"
 	std::string b_msg = "Reply " + std::to_string(their_ballotnum) + " "
 	  + std::to_string(their_id) + " " + std::to_string(accept_num[0])
-	  + " " + std::to_string(accept_num[1]) + " " + std::to_string(accept_val)
-	  + " " + std::to_string(id);
+	  + " " + std::to_string(accept_num[1]) + " "
+	  + std::to_string(accept_val[their_ballotnum]) + " " + std::to_string(id);
 
 	// send
 	sendto(socks[their_id], (const char*) b_msg.c_str(), strlen(b_msg.c_str())
@@ -52,7 +52,6 @@ void* message_handler(void* arg){
   //"ack"
   //Reply <ballotnum> <id> <their.acceptnum> <their.acceptid> <their.acceptval> <their.id>
   else if(message[0] == 'R'){
-    // update relevant global ack counter
     std::string r, b, i, tan, tai,tav, tid;
     iss >> std::skipws >> r;
     iss >> std::skipws >> b;
@@ -68,11 +67,44 @@ void* message_handler(void* arg){
     int their_acceptval = stoi(tav);
     int their_id = stoi(tid);
     std::cout << "Received from node " << std::to_string(their_id) << ": " << msg_s << std::endl;
+    
+    // update relevant global ack counter
+    ack[ballot][ballot_id]++;
+    
+    if (ack[ballot][ballot_id] == 3){
+      //majority reached: broadcast("Accept <ballot_num> <ballot_id> <accept_val> <my_id>")
+      std::string accept_broad = "Accept " + b + " " + i + " "  +
+	+ " " + std::to_string(accept_val[ballot]) + " " + std::to_string(id);
+      broadcast((char*)accept_broad.c_str());
+    }
+    // else less than 3 or greater than 3, do nothing
   }
   
-  //Accept <ballotnum> <id> <acceptval> <their.id>
+  //Accept <acceptnum> <acceptid> <acceptval> <their.id>
   else if(message[0] == 'A' || message[0]){
+    std::string a, anum, aid, av, tid;
+    iss >> std::skipws >> a;
+    iss >> std::skipws >> anum;
+    iss >> std::skipws >> aid;
+    iss >> std::skipws >> av;
+    iss >> std::skipws >> tid;
+    int acceptnum = stoi(anum);
+    int acceptid = stoi(aid);
+    int acceptval = stoi(av);
+    int their_id = stoi(tid);
+    std::cout << "Received from node " << std::to_string(their_id) << ": " << msg_s << std::endl;
+
     // update relevant global accept counter
+    accepts[acceptnum][acceptid]++;
+
+    if (accepts[acceptnum][acceptid] == 1){
+      std::string accept_broad = "Accept " + anum + " " + aid + " "  + av + " " + std::to_string(id);
+      broadcast((char*)accept_broad.c_str());
+    }
+    else if (accepts[acceptnum][acceptid] == 3){
+      // decide
+      log.push_back(acceptval);
+    }
   }
   //nack
   else if(message[0] == 'N'){
@@ -155,7 +187,8 @@ void* udp_server(void*){
  *  and setup sockets ready for UDP messaging
  *
  *  After setup completes, UDP messages can be sent via:
- *  sendto(sock[i], (const char*) msg, strlen(msg), MSG_CONFIRM)
+ *     sendto(socks[i], (const char*) input, strlen(input), MSG_CONFIRM,
+ *	   (const struct sockaddr*) &servaddrs[i], sizeof(servaddrs[i]));
  */
 void serversetup(){
   std::ifstream inFile;
@@ -201,6 +234,13 @@ void broadcast(char* input){
   }
 }
 
+void printlog(){
+  for(std::vector<int>::iterator it = log.begin(); it != log.end(); ++it) {
+    std::cout << *it;
+  }
+  std::cout << std::endl;
+}
+
 int main(int argc, char* argv[]){
   // ./program <id>
   if(argc != 2){
@@ -226,18 +266,36 @@ int main(int argc, char* argv[]){
   
   // Start allowing for command input 
   std::string input;
+  std::string i;
   printf("Input command: \n");
   std::getline(std::cin, input);
   while(input.compare("exit") != 0){
+    
+    std::istringstream iss(input);
+    iss >> std::skipws >> i;
+    
     /*
      * On propose, broadcast "propose ballot_num++ myId"
      */
-    if((input.at(0) == 'P' || input.at(0) == 'p')){
+    if((i == "Propose") || (i == "propose") || (i == "prepare") || (i == "Prepare")){
+      std::string v;
+      iss >> std::skipws >> v;
+
+      // <ballot_num++, id>
       ballot_num[0]++;
       ballot_num[1] = id;
+
+      // acceptval of this ballotnum = v
+      accept_val[ballot_num[0]] = stoi(v);
+
+      // build message and broadcast
       std::string prep = "Prepare " + std::to_string(ballot_num[0])
 	+ " " + std::to_string(ballot_num[1]);
-      broadcast((char*)prep.c_str());
+
+      broadcast((char*) prep.c_str());
+    }
+    else if (i == "printlog"){
+      printlog();
     }
     else{
       printf("Command error.\n");

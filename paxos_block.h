@@ -28,13 +28,15 @@
 int id;
 int ballot_num[2] = {0,0};
 int accept_num[2] = {0,0};
-int accept_val = 0;
-int prop_val = 0;
 std::vector<int> log; //log.push_back
 
 // Global Majority Variables
+// ack[ballot_num][id] counter
 int ack[100][5];
+// accept[ballot_num][id] counter
 int accepts[100][5];
+// accept_val[ballot_num] tracker
+int accept_val[100];
 
 // Network Variables
 std::string servers[5];
