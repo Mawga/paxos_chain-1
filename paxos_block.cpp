@@ -6,36 +6,40 @@
 void* message_handler(void* arg){
   char* message = (char*) arg;
   std::string msg_s(message);
+  std::string i;
   std::istringstream iss(msg_s);
 
+  // grab first word
+  iss >> std::skipws >> i;
+
   /*
-   * Received: "Prepare <ballot> <their.id>"
+   * Received: "Prepare <ballot_num> <ballot_id>"
    * On prepare:
-   *   
    */
-  if(message[0] == 'P'){
-    std::string p,b,i;
-    iss >> std::skipws >> p;
-    iss >> std::skipws >> b;
-    iss >> std::skipws >> i;
-    int their_ballotnum = stoi(b);
-    int their_id = stoi(i);
+  if(i.compare("Prepare") == 0){
+    // Split message up and take values
+    std::string ballot_s, id_s;
+    iss >> std::skipws >> ballot_s;
+    iss >> std::skipws >> id_s;
+    int their_ballotnum = stoi(ballot_s);
+    int their_id = stoi(id_s);
+
     std::cout << "Received from node " << std::to_string(their_id)
 	      << ": " << msg_s << std::endl;
 
     // ballot check
     if(their_ballotnum >= ballot_num[0]){
-
       if(their_ballotnum == ballot_num[0] && their_id < ballot_num[1]){
 	//do nothing, I have higher ballotnum
       }
-
       // they have higher ballotnum
       else{
 	// update ballotnum
-	ballot_num[0] = their_ballotnum;	
+	ballot_num[0] = their_ballotnum;
 
-	// build reply message: "Reply <bal> <bal_id> <acceptnum> <acceptid> <acceptval>"
+	// build reply message:
+	// "Reply <ballot_num> <ballot_id> <my_acceptnum> <my_acceptid>
+	//        <my_acceptval for this ballot_num> <my_id>"
 	std::string b_msg = "Reply " + std::to_string(their_ballotnum) + " "
 	  + std::to_string(their_id) + " " + std::to_string(accept_num[0])
 	  + " " + std::to_string(accept_num[1]) + " "
@@ -50,10 +54,12 @@ void* message_handler(void* arg){
   }
 
   //"ack"
-  //Reply <ballotnum> <id> <their.acceptnum> <their.acceptid> <their.acceptval> <their.id>
-  else if(message[0] == 'R'){
-    std::string r, b, i, tan, tai,tav, tid;
-    iss >> std::skipws >> r;
+  //Reply <ballotnum> <ballot_id> <their.acceptnum> <their.acceptid>
+  //       <their.acceptval> <their.id>
+  else if(i.compare("Reply") == 0){
+
+    // Split message and grab values
+    std::string b, i, tan, tai,tav, tid;
     iss >> std::skipws >> b;
     iss >> std::skipws >> i;
     iss >> std::skipws >> tan;
@@ -66,13 +72,15 @@ void* message_handler(void* arg){
     int their_acceptid = stoi(tai);
     int their_acceptval = stoi(tav);
     int their_id = stoi(tid);
+    
     std::cout << "Received from node " << std::to_string(their_id) << ": " << msg_s << std::endl;
     
     // update relevant global ack counter
     ack[ballot][ballot_id]++;
-    
+
+    //majority reached:
+    //  broadcast("Accept <ballot_num> <ballot_id> <accept_val> <my_id>")
     if (ack[ballot][ballot_id] == 3){
-      //majority reached: broadcast("Accept <ballot_num> <ballot_id> <accept_val> <my_id>")
       std::string accept_broad = "Accept " + b + " " + i + " "  +
 	+ " " + std::to_string(accept_val[ballot]) + " " + std::to_string(id);
       broadcast((char*)accept_broad.c_str());
@@ -81,9 +89,8 @@ void* message_handler(void* arg){
   }
   
   //Accept <acceptnum> <acceptid> <acceptval> <their.id>
-  else if(message[0] == 'A' || message[0]){
-    std::string a, anum, aid, av, tid;
-    iss >> std::skipws >> a;
+  else if(i.compare("Accept") == 0){
+    std::string anum, aid, av, tid;
     iss >> std::skipws >> anum;
     iss >> std::skipws >> aid;
     iss >> std::skipws >> av;
@@ -92,20 +99,27 @@ void* message_handler(void* arg){
     int acceptid = stoi(aid);
     int acceptval = stoi(av);
     int their_id = stoi(tid);
+
     std::cout << "Received from node " << std::to_string(their_id) << ": " << msg_s << std::endl;
 
     // update relevant global accept counter
     accepts[acceptnum][acceptid]++;
 
+    // Original proposal will have 2 when he receives first accept, but doesn't matter
+    // We want other nodes to broadcast when they're accept reaches 1
     if (accepts[acceptnum][acceptid] == 1){
-      std::string accept_broad = "Accept " + anum + " " + aid + " "  + av + " " + std::to_string(id);
+      // build accept message to be broadcast
+      std::string accept_broad = "Accept " + anum + " " + aid +
+	" "  + av + " " + std::to_string(id);
       broadcast((char*)accept_broad.c_str());
     }
+    // Accept reached majority
     else if (accepts[acceptnum][acceptid] == 3){
       // decide
       log.push_back(acceptval);
     }
   }
+  /* NOT IN USE *********************
   //nack
   else if(message[0] == 'N'){
     printf("nack\n");
@@ -124,6 +138,8 @@ void* message_handler(void* arg){
 
     // update local replicated log
   }
+  * NOT IN USE **************************
+  */  
   else{
     printf("unknown message received: %s\n", message);
   }
@@ -234,9 +250,13 @@ void broadcast(char* input){
   }
 }
 
+/*
+ * Print the log neatly
+ */
 void printlog(){
+  std::cout << "Log: ";
   for(std::vector<int>::iterator it = log.begin(); it != log.end(); ++it) {
-    std::cout << *it;
+    std::cout << *it << " ";
   }
   std::cout << std::endl;
 }
@@ -285,6 +305,10 @@ int main(int argc, char* argv[]){
       ballot_num[0]++;
       ballot_num[1] = id;
 
+      //initialized ack to 1 because I count towards majority
+      ack[ballot_num[0]][id]++;
+      accepts[ballot_num[0]][id]++;
+       
       // acceptval of this ballotnum = v
       accept_val[ballot_num[0]] = stoi(v);
 
