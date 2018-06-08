@@ -28,7 +28,7 @@
 struct Transaction{
   int to,from,amount;
 
-  Transaction(int t,int f,int a){
+  Transaction(int a,int f,int t){
     to = t;
     from = f;
     amount = a;
@@ -36,15 +36,15 @@ struct Transaction{
 };
 
 // Blockchain Variables
-std::list<std::vector<Transaction*>> blockchain // list of vectors of transactions
+std::list<std::vector<Transaction*>> blockchain; // list of vectors of transactions
 std::vector<Transaction*> queue; // Vector of Transactions (max 10)
 int balance = 100;
+int depth = 0;
 
 // PAXOS Variables
 int id;
 int ballot_num[2] = {0,0};
 int accept_num[2] = {0,0};
-std::vector<int> log; //log.push_back
 
 // Global Majority Variables
 // ack[ballot_num][id] counter
@@ -72,6 +72,7 @@ void* message_handler(void*); // char*
 void* udp_server(void*);
 void serversetup();
 void broadcast(char*);
-
+void printlog();
+void* prop_timeout(void*);
 
 #endif

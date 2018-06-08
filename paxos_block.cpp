@@ -8,10 +8,10 @@ void* message_handler(void* arg){
   std::string msg_s(message);
   std::string i;
   std::istringstream iss(msg_s);
-
+  
   // grab first word
   iss >> std::skipws >> i;
-
+  
   /*
    * Received: "Prepare <ballot_num> <ballot_id>"
    * On prepare:
@@ -19,14 +19,16 @@ void* message_handler(void* arg){
   if(i.compare("Prepare") == 0){
     // Split message up and take values
     std::string ballot_s, id_s;
+    
     iss >> std::skipws >> ballot_s;
     iss >> std::skipws >> id_s;
+    
     int their_ballotnum = stoi(ballot_s);
     int their_id = stoi(id_s);
-
+    
     std::cout << "Received from node " << std::to_string(their_id)
 	      << ": " << msg_s << std::endl;
-
+    
     // ballot check
     if(their_ballotnum >= ballot_num[0]){
       if(their_ballotnum == ballot_num[0] && their_id < ballot_num[1]){
@@ -36,23 +38,24 @@ void* message_handler(void* arg){
       else{
 	// update ballotnum
 	ballot_num[0] = their_ballotnum;
-
+	ballot_num[1] = their_id;
+	
 	// build reply message:
 	// "Reply <ballot_num> <ballot_id> <my_acceptnum> <my_acceptid>
 	//        <my_id> <my_acceptval for this ballot_num>"
 	std::string b_msg = "Reply " + std::to_string(their_ballotnum) + " "
 	  + std::to_string(their_id) + " " + std::to_string(accept_num[0])
 	  + " " + std::to_string(accept_num[1]) + " " + std::to_string(id);
-
+	
 	// add our acceptval to the message
 	std::vector<Transaction>::iterator it;
 	for(it = accept_val.begin(); it != accept_val.end(); ++it) {
           b_msg += " " + std::to_string((*it).amount) + " "
 	    + std::to_string((*it).from) + " " + std::to_string((*it).to);
         }
-
-	b_msg += " " + "end";
-
+	
+	b_msg = b_msg +  " " + "end";
+	
 	// send
 	sendto(socks[their_id], (const char*) b_msg.c_str(), strlen(b_msg.c_str())
 	       , MSG_CONFIRM, (const struct sockaddr*) &servaddrs[their_id],
@@ -60,101 +63,104 @@ void* message_handler(void* arg){
       }
     }
   }
-
+  
   //"ack"
   //Reply <ballotnum> <ballot_id> <their.acceptnum> <their.acceptid>
   //       <their.id> <their.acceptval> 
   else if(i.compare("Reply") == 0){
-
+    
     // Split message and grab values
-    std::string b, i, tan, tai,tav, tid;
+    std::string b, i, tan, tai, tid;
+    
     iss >> std::skipws >> b;
     iss >> std::skipws >> i;
     iss >> std::skipws >> tan;
     iss >> std::skipws >> tai;
     iss >> std::skipws >> tid;
+    
     int ballot = stoi(b);
     int ballot_id = stoi(i);
     int their_acceptnum = stoi(tan);
     int their_acceptid = stoi(tai);
     int their_id = stoi(tid);
-
     
     std::cout << "Received from node " << std::to_string(their_id) << ": " << msg_s << std::endl;
     
     // update relevant global ack counter
     ack[ballot][ballot_id]++;
-
+    
+    // ASSUMING ACCEPTVAL IS EMPTY
     // ADD CASE: If acceptval isn't empty 
     
     //majority reached:
     //  broadcast("Accept <ballot_num> <ballot_id> <my_id> <depth> <accept_val> ")
     if (ack[ballot][ballot_id] == 3){
       std::string accept_broad = "Accept " + b + " " + i + " " + std::to_string(id)
-	+ " " + td::to_string(depth) + " ";
-
-        for(std::vector<*Transaction>::iterator it = queue.begin(); it != queue.end(); ++it) {
-          accept_broad += (std::to_string((*it)->amount));
-          accept_broad += " ";
-          accept_broad += (std::to_string((*it)->from));
-          accept_broad += " ";
-          accept_broad += (std::to_string((*it)->to));
-          accept_broad += " ";
-        }
-        accept_broad += "end";
-      broadcast((char*)accept_broad.c_str());
-    }
-    // else less than 3 or greater than 3, do nothing
-  }
+	+ " " + std::to_string(depth) + " ";
+      
+      for(std::vector<Transaction*>::iterator it = queue.begin(); it != queue.end(); ++it) {
+	accept_broad += (std::to_string((*it)->amount));
+	accept_broad += " ";
+	accept_broad += (std::to_string((*it)->from));
+   	accept_broad += " ";
+   	accept_broad += (std::to_string((*it)->to));
+   	accept_broad += " ";
+       }
+       accept_broad += "end";	
+       broadcast((char*)accept_broad.c_str());
+       queue.clear();
+     }
+     // else less than 3 or greater than 3, do nothing
+   }
   
-  //Accept <acceptnum> <acceptid> <their.id> <depth> <acceptval> 
-  else if(i.compare("Accept") == 0){
-    std::string anum, aid, av, tid, d;
-    iss >> std::skipws >> anum;
-    iss >> std::skipws >> aid;
-    iss >> std::skipws >> d;
-    iss >> std::skipws >> tid;
-
-    int acceptnum = stoi(anum);
-    int acceptid = stoi(aid);
-    int blockdepth = stoi(d);
-    int their_id = stoi(tid);
-
-    int parseMess = 1;
-
-    if (accepts[acceptnum][acceptid] < 3)
-    {
-      std::string amountstr;
-      std::string fromstr;
-      std::string tostr;
-
-      iss >> std::skipws >> amountstr;
-
-      if(amountstr.compare("end") == 0 || accept_val.size() != 0)
-        parseMess = 0;
-
-      while(parseMess) {
-        iss >> std::skipws >> fromstr;
-        iss >> std::skipws >> tostr;
-        accept_val.push_back(Transaction(stoi(amountstr), stoi(fromstr), stoi(tostr)));
-        
-        iss >> std::skipws >> amountstr;
-        if(amountstr.compare("end") == 0)
-          parseMess = 0;
-      }
-
-      std::cout << "Received from node " << std::to_string(their_id) << ": " << msg_s << std::endl;
-
-      // update relevant global accept counter
-      accepts[acceptnum][acceptid]++;
-
-      // Original proposal will have 2 when he receives first accept, but doesn't matter
-      // We want other nodes to broadcast when they're accept reaches 1
-      if (accepts[acceptnum][acceptid] == 1){
-        // build accept message to be broadcast
-        std::string accept_broad = "Accept " + anum + " " + aid +
-    " " + std::to_string(id) + " ";
-        for(std::vector<Transaction>::iterator it = accept_val.begin(); it != accept_val.end(); ++it) {
+   //Accept <acceptnum> <acceptid> <their.id> <depth> <acceptval> 
+   else if(i.compare("Accept") == 0){
+     std::string anum, aid, av, tid, d;
+     iss >> std::skipws >> anum;
+     iss >> std::skipws >> aid;
+     iss >> std::skipws >> d;
+     iss >> std::skipws >> tid;
+    
+     int acceptnum = stoi(anum);
+     int acceptid = stoi(aid);
+     int blockdepth = stoi(d);
+     int their_id = stoi(tid);
+    
+     int parseMess = 1;
+    
+     if (accepts[acceptnum][acceptid] < 3){
+       std::string amountstr;
+       std::string fromstr;
+       std::string tostr;
+      
+       iss >> std::skipws >> amountstr;
+      
+       if(amountstr.compare("end") == 0 || accept_val.size() != 0)
+   	parseMess = 0;
+      
+       while(parseMess) {
+   	printf("parsemess\n");
+  	iss >> std::skipws >> fromstr;
+   	iss >> std::skipws >> tostr;
+   	accept_val.push_back(Transaction(stoi(amountstr), stoi(fromstr), stoi(tostr)));
+	
+         iss >> std::skipws >> amountstr;
+         if(amountstr.compare("end") == 0)
+           parseMess = 0;
+       }
+      
+       std::cout << "Received from node " << std::to_string(their_id) << ": " << msg_s << std::endl;
+      
+       // update relevant global accept counter
+       accepts[acceptnum][acceptid]++;
+      
+       // Original proposal will have 2 when he receives first accept, but doesn't matter
+       // We want other nodes to broadcast when they're accept reaches 1
+       if (accepts[acceptnum][acceptid] == 1){
+         // build accept message to be broadcast
+	 std::string accept_broad = "Accept " + anum + " " + aid +
+	   " " + std::to_string(id) + " " + std::to_string(blockdepth) + " ";
+         for(std::vector<Transaction>::iterator it = accept_val.begin(); it != accept_val.end(); ++it) {
           accept_broad += std::to_string((*it).amount);
           accept_broad += " ";
           accept_broad += std::to_string((*it).from);
@@ -168,21 +174,30 @@ void* message_handler(void* arg){
       // Accept reached majority
       else if (accepts[acceptnum][acceptid] == 3){
         // decide
-        std::vector<*Transaction> tempval;
+        std::vector<Transaction*> tempval;
         for(std::vector<Transaction>::iterator it = accept_val.begin(); it != accept_val.end(); ++it) {
-          Transaction * temp = new Transaction((*it).value, (*it).from, (*it).to);
+          Transaction * temp = new Transaction((*it).amount, (*it).from, (*it).to);
           tempval.push_back(temp);
         }
         accept_val.clear();
         blockchain.push_back(tempval);
+	depth++;
+	//find_money(tempval);
       }
       else{
-        printf("unknown message received: %s\n", message);
+	//ignore
       }
-    }
-    pthread_exit(NULL);
-  }
+     }
+   }
+   else{
+     printf("unknown message received: %s\n", message);
+   }
+  pthread_exit(NULL);
+}
 
+
+  
+  
 /* UDP SERVER THREAD:
  *  Always receiving UDP messages for Paxos and sending them to other servers without
  *  checking for liveness of receiver.
@@ -290,16 +305,22 @@ void broadcast(char* input){
 /*
  * Print the log neatly
  */
-void printlog(){
-  std::cout << "Log: ";
-  for(std::vector<int>::iterator it = log.begin(); it != log.end(); ++it) {
-    std::cout << *it << " ";
+void printblockchain(){
+  std::cout << "Blockchain (Amount, From, To): " << std::endl;
+  std::list<std::vector<Transaction*>>::iterator it1;
+  for(it1 = blockchain.begin(); it1 != blockchain.end(); ++it1) {
+    //std::vector<Transaction*> *it1
+    std::vector<Transaction*>::iterator it2;
+    for(it2 = (*it1).begin(); it2 != (*it1).end(); ++it2){
+      std::cout << std::to_string((*it2)->amount) << " "
+		<< std::to_string((*it2)->from) << " "
+		<< std::to_string((*it2)->to) << std::endl;
+    }
   }
-  std::cout << std::endl;
 }
 
 void* prop_timeout(void* arg){
-  usleep(5000000);
+  usleep(10000000);
   // <ballot_num++, id>
   ballot_num[0]++;
   ballot_num[1] = id;
@@ -362,7 +383,7 @@ int main(int argc, char* argv[]){
 	std::cout << "Queue is full" << std::endl;
       else if(stoi(amount_s) <= balance){
 	// Create new transaction
-	Transaction* transaction = new Transaction();
+	Transaction* transaction = new Transaction(0,0,0);
 	transaction->amount = stoi(amount_s);
 	transaction->from = stoi(debit_s);
 	transaction->to = stoi(credit_s);
@@ -380,8 +401,8 @@ int main(int argc, char* argv[]){
 	std::cout << "Amount exceeds balance" << std::endl;
       }
     }
-    else if (i == "printlog"){
-      printlog();
+    else if (i == "printblockchain"){
+      printblockchain();
     }
     else{
       printf("Command error.\n");
