@@ -79,8 +79,6 @@ void* message_handler(void* arg){
     int their_acceptid = stoi(tai);
     int their_id = stoi(tid);
 
-    // acceptval -> tav
-    iss >> tav;
     
     std::cout << "Received from node " << std::to_string(their_id) << ": " << msg_s << std::endl;
     
@@ -90,16 +88,26 @@ void* message_handler(void* arg){
     // ADD CASE: If acceptval isn't empty 
     
     //majority reached:
-    //  broadcast("Accept <ballot_num> <ballot_id> <my_id> <accept_val> ")
+    //  broadcast("Accept <ballot_num> <ballot_id> <my_id> <depth> <accept_val> ")
     if (ack[ballot][ballot_id] == 3){
-      std::string accept_broad = "Accept " + b + " " + i + " "  +
-	+ " " + std::to_string(id) + " " + tav;
+      std::string accept_broad = "Accept " + b + " " + i + " " + std::to_string(id)
+	+ " " + td::to_string(depth) + " ";
+
+        for(std::vector<*Transaction>::iterator it = queue.begin(); it != queue.end(); ++it) {
+          accept_broad += (std::to_string((*it)->amount));
+          accept_broad += " ";
+          accept_broad += (std::to_string((*it)->from));
+          accept_broad += " ";
+          accept_broad += (std::to_string((*it)->to));
+          accept_broad += " ";
+        }
+        accept_broad += "end";
       broadcast((char*)accept_broad.c_str());
     }
     // else less than 3 or greater than 3, do nothing
   }
   
-  //Accept <acceptnum> <acceptid> <their.id> <acceptval> 
+  //Accept <acceptnum> <acceptid> <their.id> <depth> <acceptval> 
   else if(i.compare("Accept") == 0){
     std::string anum, aid, av, tid, d;
     iss >> std::skipws >> anum;
