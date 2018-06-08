@@ -39,11 +39,19 @@ void* message_handler(void* arg){
 
 	// build reply message:
 	// "Reply <ballot_num> <ballot_id> <my_acceptnum> <my_acceptid>
-	//        <my_acceptval for this ballot_num> <my_id>"
+	//        <my_id> <my_acceptval for this ballot_num>"
 	std::string b_msg = "Reply " + std::to_string(their_ballotnum) + " "
 	  + std::to_string(their_id) + " " + std::to_string(accept_num[0])
-	  + " " + std::to_string(accept_num[1]) + " "
-	  + std::to_string(accept_val[their_ballotnum]) + " " + std::to_string(id);
+	  + " " + std::to_string(accept_num[1]) + " " + std::to_string(id);
+
+	// add our acceptval to the message
+	std::vector<Transaction>::iterator it;
+	for(it = accept_val.begin(); it != accept_val.end(); ++it) {
+          b_msg += " " + std::to_string((*it).amount) + " "
+	    + std::to_string((*it).from) + " " + std::to_string((*it).to);
+        }
+
+	b_msg += " " + "end";
 
 	// send
 	sendto(socks[their_id], (const char*) b_msg.c_str(), strlen(b_msg.c_str())
@@ -55,7 +63,7 @@ void* message_handler(void* arg){
 
   //"ack"
   //Reply <ballotnum> <ballot_id> <their.acceptnum> <their.acceptid>
-  //       <their.acceptval> <their.id>
+  //       <their.id> <their.acceptval> 
   else if(i.compare("Reply") == 0){
 
     // Split message and grab values
@@ -64,40 +72,41 @@ void* message_handler(void* arg){
     iss >> std::skipws >> i;
     iss >> std::skipws >> tan;
     iss >> std::skipws >> tai;
-    iss >> std::skipws >> tav;
     iss >> std::skipws >> tid;
     int ballot = stoi(b);
     int ballot_id = stoi(i);
     int their_acceptnum = stoi(tan);
     int their_acceptid = stoi(tai);
-    int their_acceptval = stoi(tav);
     int their_id = stoi(tid);
+
+    // acceptval -> tav
+    iss >> tav;
     
     std::cout << "Received from node " << std::to_string(their_id) << ": " << msg_s << std::endl;
     
     // update relevant global ack counter
     ack[ballot][ballot_id]++;
 
+    // ADD CASE: If acceptval isn't empty 
+    
     //majority reached:
-    //  broadcast("Accept <ballot_num> <ballot_id> <accept_val> <my_id>")
+    //  broadcast("Accept <ballot_num> <ballot_id> <my_id> <accept_val> ")
     if (ack[ballot][ballot_id] == 3){
       std::string accept_broad = "Accept " + b + " " + i + " "  +
-	+ " " + std::to_string(accept_val[ballot]) + " " + std::to_string(id);
+	+ " " + std::to_string(id) + " " + tav;
       broadcast((char*)accept_broad.c_str());
     }
     // else less than 3 or greater than 3, do nothing
   }
   
-  //Accept <acceptnum> <acceptid> <acceptval> <their.id>
+  //Accept <acceptnum> <acceptid> <their.id> <acceptval> 
   else if(i.compare("Accept") == 0){
     std::string anum, aid, av, tid;
     iss >> std::skipws >> anum;
     iss >> std::skipws >> aid;
-    iss >> std::skipws >> av;
     iss >> std::skipws >> tid;
     int acceptnum = stoi(anum);
     int acceptid = stoi(aid);
-    int acceptval = stoi(av);
     int their_id = stoi(tid);
 
     std::cout << "Received from node " << std::to_string(their_id) << ": " << msg_s << std::endl;
@@ -119,27 +128,6 @@ void* message_handler(void* arg){
       log.push_back(acceptval);
     }
   }
-  /* NOT IN USE *********************
-  //nack
-  else if(message[0] == 'N'){
-    printf("nack\n");
-
-    // usage tbd...
-  }
-  //poll for update
-  else if(message[0] == 'B'){
-    printf("poll for update\n");
-
-    // send replicated log
-  }
-  //update
-  else if(message[0] == 'U'){
-    printf("update blockchain\n");
-
-    // update local replicated log
-  }
-  * NOT IN USE **************************
-  */  
   else{
     printf("unknown message received: %s\n", message);
   }
@@ -261,6 +249,24 @@ void printlog(){
   std::cout << std::endl;
 }
 
+void* prop_timeout(void* arg){
+  usleep(5000000);
+  // <ballot_num++, id>
+  ballot_num[0]++;
+  ballot_num[1] = id;
+  
+  //initialized ack to 1 because I count towards majority
+  ack[ballot_num[0]][id]++;
+  accepts[ballot_num[0]][id]++;
+
+  // build message and broadcast
+  std::string prep = "Prepare " + std::to_string(ballot_num[0])
+    + " " + std::to_string(ballot_num[1]);
+  
+  broadcast((char*) prep.c_str());
+  pthread_exit(NULL);
+}
+
 int main(int argc, char* argv[]){
   // ./program <id>
   if(argc != 2){
@@ -297,7 +303,7 @@ int main(int argc, char* argv[]){
     /*
      * On moneyTransfer, broadcast "propose ballot_num++ myId"
      */
-    if(i == "moneyTransfer"){
+    if(i.compare("moneyTransfer") == 0){
       std::string amount_s, debit_s, credit_s;
       iss >> std::skipws >> amount_s;
       iss >> std::skipws >> debit_s;
@@ -312,25 +318,14 @@ int main(int argc, char* argv[]){
 	transaction->from = stoi(debit_s);
 	transaction->to = stoi(credit_s);
 
-	// append to queue
-	queue.push_back
-	
-	// <ballot_num++, id>
-	ballot_num[0]++;
-	ballot_num[1] = id;
+	// queue of transactions we want to propose
+	// accept_val = queue when sending accepts
+	queue.push_back(transaction);
 
-	//initialized ack to 1 because I count towards majority
-	ack[ballot_num[0]][id]++;
-	accepts[ballot_num[0]][id]++;
-	
-	// acceptval of this ballotnum = v
-	accept_val[ballot_num[0]] = stoi(v);
-	
-	// build message and broadcast
-	std::string prep = "Prepare " + std::to_string(ballot_num[0])
-	  + " " + std::to_string(ballot_num[1]);
-
-	broadcast((char*) prep.c_str());
+	if(queue.size() == 1){
+	  thread_i++;
+	  pthread_create(&threads[thread_i], NULL, prop_timeout, NULL);
+	}
       }
       else{
 	std::cout << "Amount exceeds balance" << std::endl;

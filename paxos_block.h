@@ -27,6 +27,12 @@
 
 struct Transaction{
   int to,from,amount;
+
+  Transaction(int t,int f,int a){
+    to = t;
+    from = f;
+    amount = a;
+  }
 };
 
 // Blockchain Variables
@@ -46,7 +52,7 @@ int ack[100][5];
 // accept[ballot_num][id] counter
 int accepts[100][5];
 // accept_val[ballot_num] tracker
-int accept_val[100];
+std::vector<Transaction> accept_val;
 
 // Network Variables
 std::string servers[5];
