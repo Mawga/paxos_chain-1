@@ -22,7 +22,17 @@
 #include <sys/types.h> //special types pther_t
 #include <sys/socket.h> //sockets
 
+#include <list> //blockchain linked list
 #include <vector> //keep track of majorities
+
+struct Transaction{
+  int to,from,amount;
+};
+
+// Blockchain Variables
+std::list<std::vector<Transaction*>> blockchain // list of vectors of transactions
+std::vector<Transaction*> queue; // Vector of Transactions (max 10)
+int balance = 100;
 
 // PAXOS Variables
 int id;

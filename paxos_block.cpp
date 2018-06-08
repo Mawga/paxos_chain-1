@@ -295,28 +295,46 @@ int main(int argc, char* argv[]){
     iss >> std::skipws >> i;
     
     /*
-     * On propose, broadcast "propose ballot_num++ myId"
+     * On moneyTransfer, broadcast "propose ballot_num++ myId"
      */
-    if((i == "Propose") || (i == "propose") || (i == "prepare") || (i == "Prepare")){
-      std::string v;
-      iss >> std::skipws >> v;
+    if(i == "moneyTransfer"){
+      std::string amount_s, debit_s, credit_s;
+      iss >> std::skipws >> amount_s;
+      iss >> std::skipws >> debit_s;
+      iss >> std::skipws >> credit_s;
 
-      // <ballot_num++, id>
-      ballot_num[0]++;
-      ballot_num[1] = id;
+      if(queue.size() >= 10)
+	std::cout << "Queue is full" << std::endl;
+      else if(stoi(amount_s) <= balance){
+	// Create new transaction
+	Transaction* transaction = new Transaction();
+	transaction->amount = stoi(amount_s);
+	transaction->from = stoi(debit_s);
+	transaction->to = stoi(credit_s);
 
-      //initialized ack to 1 because I count towards majority
-      ack[ballot_num[0]][id]++;
-      accepts[ballot_num[0]][id]++;
-       
-      // acceptval of this ballotnum = v
-      accept_val[ballot_num[0]] = stoi(v);
+	// append to queue
+	queue.push_back
+	
+	// <ballot_num++, id>
+	ballot_num[0]++;
+	ballot_num[1] = id;
 
-      // build message and broadcast
-      std::string prep = "Prepare " + std::to_string(ballot_num[0])
-	+ " " + std::to_string(ballot_num[1]);
+	//initialized ack to 1 because I count towards majority
+	ack[ballot_num[0]][id]++;
+	accepts[ballot_num[0]][id]++;
+	
+	// acceptval of this ballotnum = v
+	accept_val[ballot_num[0]] = stoi(v);
+	
+	// build message and broadcast
+	std::string prep = "Prepare " + std::to_string(ballot_num[0])
+	  + " " + std::to_string(ballot_num[1]);
 
-      broadcast((char*) prep.c_str());
+	broadcast((char*) prep.c_str());
+      }
+      else{
+	std::cout << "Amount exceeds balance" << std::endl;
+      }
     }
     else if (i == "printlog"){
       printlog();
@@ -326,7 +344,7 @@ int main(int argc, char* argv[]){
     }
 
     //Short wait for command thread to run properly
-    usleep(1000000);
+    usleep(500000);
     
     printf("Input command: \n");
     std::getline(std::cin, input);
