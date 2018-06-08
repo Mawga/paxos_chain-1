@@ -182,7 +182,7 @@ void* message_handler(void* arg){
         accept_val.clear();
         blockchain.push_back(tempval);
 	depth++;
-	//find_money(tempval);
+	update_balance();
       }
       else{
 	//ignore
@@ -319,6 +319,17 @@ void printblockchain(){
   }
 }
 
+void update_balance(){
+  // go through 
+}
+
+bool amountexceeded(){
+  //check queue
+  //if amount exceeded
+  // return true
+  //else return false
+}
+
 void* prop_timeout(void* arg){
   usleep(10000000);
   // <ballot_num++, id>
@@ -381,7 +392,8 @@ int main(int argc, char* argv[]){
 
       if(queue.size() >= 10)
 	std::cout << "Queue is full" << std::endl;
-      else if(stoi(amount_s) <= balance){
+
+      else if(!amountexceeded()){
 	// Create new transaction
 	Transaction* transaction = new Transaction(0,0,0);
 	transaction->amount = stoi(amount_s);
@@ -417,41 +429,3 @@ int main(int argc, char* argv[]){
   return 0;
 
 }
-
-
-/* NOT POSSIBLE? atttempts: boost::timeout, std::future
- *
- * Constantly check if a majority of acks or accepts has been achieved and return true.
- * At timeout, the function will be terminated regardless of majority achieved and assume
- * false.
- *
-bool majority_counter(char* arg){
-  std::string arg_s(arg);
-  std::istringstream iss(arg_s);
-  
-  // Counting Acks
-  if(arg[0] == 'R'){
-    std::string x_s, y_s;
-    iss >> std::skipws >> x_s;
-    iss >> std::skipws >> y_s;
-    int x = stoi(x_s);
-    int y = stoi(y_s);
-    while(ack[x][y] < 3){
-      usleep(1000000);
-    }
-  }
-
-  // Counting Accepts
-  else{
-    std::string x_s, y_s;
-    iss >> std::skipws >> x_s;
-    iss >> std::skipws >> y_s;
-    int x = stoi(x_s);
-    int y = stoi(y_s);
-    while(accepts[x][y] < 3){
-      usleep(1000000)
-    }
-  }
-  return true;
-}
-*/
