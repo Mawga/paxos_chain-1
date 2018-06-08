@@ -101,38 +101,79 @@ void* message_handler(void* arg){
   
   //Accept <acceptnum> <acceptid> <their.id> <acceptval> 
   else if(i.compare("Accept") == 0){
-    std::string anum, aid, av, tid;
+    std::string anum, aid, av, tid, d;
     iss >> std::skipws >> anum;
     iss >> std::skipws >> aid;
+    iss >> std::skipws >> d;
     iss >> std::skipws >> tid;
+
     int acceptnum = stoi(anum);
     int acceptid = stoi(aid);
+    int blockdepth = stoi(d);
     int their_id = stoi(tid);
 
-    std::cout << "Received from node " << std::to_string(their_id) << ": " << msg_s << std::endl;
+    int parseMess = 1;
 
-    // update relevant global accept counter
-    accepts[acceptnum][acceptid]++;
+    if (accepts[acceptnum][acceptid] < 3)
+    {
+      std::string amountstr;
+      std::string fromstr;
+      std::string tostr;
 
-    // Original proposal will have 2 when he receives first accept, but doesn't matter
-    // We want other nodes to broadcast when they're accept reaches 1
-    if (accepts[acceptnum][acceptid] == 1){
-      // build accept message to be broadcast
-      std::string accept_broad = "Accept " + anum + " " + aid +
-	" "  + av + " " + std::to_string(id);
-      broadcast((char*)accept_broad.c_str());
+      iss >> std::skipws >> amountstr;
+
+      if(amountstr.compare("end") == 0 || accept_val.size() != 0)
+        parseMess = 0;
+
+      while(parseMess) {
+        iss >> std::skipws >> fromstr;
+        iss >> std::skipws >> tostr;
+        accept_val.push_back(Transaction(stoi(amountstr), stoi(fromstr), stoi(tostr)));
+        
+        iss >> std::skipws >> amountstr;
+        if(amountstr.compare("end") == 0)
+          parseMess = 0;
+      }
+
+      std::cout << "Received from node " << std::to_string(their_id) << ": " << msg_s << std::endl;
+
+      // update relevant global accept counter
+      accepts[acceptnum][acceptid]++;
+
+      // Original proposal will have 2 when he receives first accept, but doesn't matter
+      // We want other nodes to broadcast when they're accept reaches 1
+      if (accepts[acceptnum][acceptid] == 1){
+        // build accept message to be broadcast
+        std::string accept_broad = "Accept " + anum + " " + aid +
+    " " + std::to_string(id) + " ";
+        for(std::vector<Transaction>::iterator it = accept_val.begin(); it != accept_val.end(); ++it) {
+          accept_broad += std::to_string((*it).amount);
+          accept_broad += " ";
+          accept_broad += std::to_string((*it).from);
+          accept_broad += " ";
+          accept_broad += std::to_string((*it).to);
+          accept_broad += " ";
+        }
+        accept_broad += "end";
+        broadcast((char*)accept_broad.c_str());
+      }
+      // Accept reached majority
+      else if (accepts[acceptnum][acceptid] == 3){
+        // decide
+        std::vector<*Transaction> tempval;
+        for(std::vector<Transaction>::iterator it = accept_val.begin(); it != accept_val.end(); ++it) {
+          Transaction * temp = new Transaction((*it).value, (*it).from, (*it).to);
+          tempval.push_back(temp);
+        }
+        accept_val.clear();
+        blockchain.push_back(tempval);
+      }
+      else{
+        printf("unknown message received: %s\n", message);
+      }
     }
-    // Accept reached majority
-    else if (accepts[acceptnum][acceptid] == 3){
-      // decide
-      log.push_back(acceptval);
-    }
+    pthread_exit(NULL);
   }
-  else{
-    printf("unknown message received: %s\n", message);
-  }
-  pthread_exit(NULL);
-}
 
 /* UDP SERVER THREAD:
  *  Always receiving UDP messages for Paxos and sending them to other servers without
