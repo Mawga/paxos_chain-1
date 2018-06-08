@@ -72,7 +72,7 @@ void* message_handler(void*); // char*
 void* udp_server(void*);
 void serversetup();
 void broadcast(char*);
-void printlog();
+void printblockchain();
 void* prop_timeout(void*);
 
 #endif

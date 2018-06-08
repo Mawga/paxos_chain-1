@@ -83,37 +83,31 @@ void* message_handler(void* arg){
 	     sizeof(servaddrs[their_id]));
     }
     // ballot check
-    else if(their_ballotnum >= ballot_num[0]){
-      if(their_ballotnum == ballot_num[0] && their_id < ballot_num[1]){
-	//do nothing, I have higher ballotnum
+    else if(their_ballotnum > ballot_num[0]){
+      // update ballotnum
+      ballot_num[0] = their_ballotnum;
+      ballot_num[1] = their_id;
+      
+      // build reply message:
+      // "Reply <ballot_num> <ballot_id> <my_acceptnum> <my_acceptid>
+      //        <my_id> <my_acceptval for this ballot_num>"
+      std::string b_msg = "Reply " + std::to_string(their_ballotnum) + " "
+	+ std::to_string(their_id) + " " + std::to_string(accept_num[0])
+	+ " " + std::to_string(accept_num[1]) + " " + std::to_string(id);
+      
+      // add our acceptval to the message
+      std::vector<Transaction>::iterator it;
+      for(it = accept_val.begin(); it != accept_val.end(); ++it) {
+	b_msg += " " + std::to_string((*it).amount) + " "
+	  + std::to_string((*it).from) + " " + std::to_string((*it).to);
       }
-      // they have higher ballotnum
-      else{
-	// update ballotnum
-	ballot_num[0] = their_ballotnum;
-	ballot_num[1] = their_id;
-	
-	// build reply message:
-	// "Reply <ballot_num> <ballot_id> <my_acceptnum> <my_acceptid>
-	//        <my_id> <my_acceptval for this ballot_num>"
-	std::string b_msg = "Reply " + std::to_string(their_ballotnum) + " "
-	  + std::to_string(their_id) + " " + std::to_string(accept_num[0])
-	  + " " + std::to_string(accept_num[1]) + " " + std::to_string(id);
-	
-	// add our acceptval to the message
-	std::vector<Transaction>::iterator it;
-	for(it = accept_val.begin(); it != accept_val.end(); ++it) {
-          b_msg += " " + std::to_string((*it).amount) + " "
-	    + std::to_string((*it).from) + " " + std::to_string((*it).to);
-        }
-	
-	b_msg = b_msg +  " " + "end";
-	
-	// send
-	sendto(socks[their_id], (const char*) b_msg.c_str(), strlen(b_msg.c_str())
-	       , MSG_CONFIRM, (const struct sockaddr*) &servaddrs[their_id],
-	       sizeof(servaddrs[their_id]));
-      }
+      
+      b_msg = b_msg +  " " + "end";
+      
+      // send
+      sendto(socks[their_id], (const char*) b_msg.c_str(), strlen(b_msg.c_str())
+	     , MSG_CONFIRM, (const struct sockaddr*) &servaddrs[their_id],
+	     sizeof(servaddrs[their_id])); 
     }
   }
   
@@ -148,6 +142,7 @@ void* message_handler(void* arg){
     //majority reached:
     //  broadcast("Accept <ballot_num> <ballot_id> <depth> <my id> <accept_val> ")
     if (ack[ballot][ballot_id] == 3){
+      std::cout << "Ack majority reached." << std::endl;
       std::string accept_broad = "Accept " + b + " " + i + " " + std::to_string(depth)
 	+ " " + std::to_string(id) + " ";
       
@@ -182,6 +177,7 @@ void* message_handler(void* arg){
     int parseMess = 1;
 
     std::cout << "Received from node " << std::to_string(their_id) << ": " << msg_s << std::endl;
+    std::cout << "Accepts: " << std::to_string(accepts[acceptnum][acceptid]) << std::endl;
     
     if (accepts[acceptnum][acceptid] < 3){
       std::string amountstr;
@@ -190,8 +186,9 @@ void* message_handler(void* arg){
       
       iss >> std::skipws >> amountstr;
       
-      if(amountstr.compare("end") == 0 || accept_val.size() != 0)
+      if(amountstr.compare("end") == 0 || accept_val.size() != 0){
    	parseMess = 0;
+      }
       
       while(parseMess) {
    	iss >> std::skipws >> fromstr;
@@ -211,9 +208,10 @@ void* message_handler(void* arg){
       // Original proposal will have 2 when he receives first accept, but doesn't matter
       // We want other nodes to broadcast when they're accept reaches 1
       if (accepts[acceptnum][acceptid] == 1){
+	std::cout << "First accept received. Broadcast relay." << std::endl;
 	// build accept message to be broadcast
 	std::string accept_broad = "Accept " + anum + " " + aid +
-	  " " + std::to_string(id) + " " + std::to_string(blockdepth) + " ";
+	  " " + std::to_string(blockdepth) + " " + std::to_string(id) + " ";
 	for(std::vector<Transaction>::iterator it = accept_val.begin(); it != accept_val.end(); ++it) {
           accept_broad += std::to_string((*it).amount);
           accept_broad += " ";
@@ -228,6 +226,8 @@ void* message_handler(void* arg){
     }
     // Accept reached majority
     else if (accepts[acceptnum][acceptid] == 3){
+      std::cout << "Accept reached majority, decide." << std::endl;
+
       // decide
       std::vector<Transaction*> tempval;
       for(std::vector<Transaction>::iterator it = accept_val.begin(); it != accept_val.end(); ++it) {
@@ -256,25 +256,32 @@ void* message_handler(void* arg){
     int parseMess = 1;
     
     iss >> std::skipws >> amountstr;
+
+    std::cout << amountstr << std::endl;
     
-    if(amountstr.compare("end") == 0 || amountstr.compare("chain"))
+    if(amountstr.compare("end") == 0 || amountstr.compare("chain")){
       parseMess = 0;
+      std::cout << "end/chain found as first word" << std::endl;
+    }
     
-    std::vector<Transaction*>* new_block = new std::vector<Transaction*>();
+    //std::vector<Transaction*>* new_block = new std::vector<Transaction*>();
     while(parseMess) {
-      iss >> std::skipws >> fromstr;
-      iss >> std::skipws >> tostr;
+      std::cout << "while" << std::endl;
+      std::vector<Transaction*> new_block;
+      while(amountstr.compare("chain") != 0){
+	iss >> std::skipws >> fromstr;
+	iss >> std::skipws >> tostr;
+	
+	tx = new Transaction(stoi(amountstr), stoi(fromstr), stoi(tostr));
       
-      tx = new Transaction(stoi(amountstr), stoi(fromstr), stoi(tostr));
+	new_block.push_back(tx);
       
-      new_block->push_back(tx);
-      
-      iss >> std::skipws >> amountstr;
-      
-      if(amountstr.compare("chain") == 0){
-	blockchain.push_back(*new_block);
-	new_block = new std::vector<Transaction*>();
+	iss >> std::skipws >> amountstr;
       }
+      
+      blockchain.push_back(new_block);
+
+      printblockchain();//
       
       iss >> std::skipws >> amountstr;
       
@@ -348,7 +355,7 @@ void* udp_server(void*){
     thread_i++;
     pthread_create(&threads[thread_i], NULL, message_handler, (void*) arg);
 
-    usleep(1000000);
+    //usleep(1000000);
   }
   pthread_exit(NULL);
 }
