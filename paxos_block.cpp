@@ -1,5 +1,37 @@
 #include "paxos_block.h"
 
+std::string build_update(){
+  std::string update = "Update " + std::to_string(id) + " ";
+  std::list<std::vector<Transaction*>>::iterator it1;
+  for(it1 = blockchain.begin(); it1 != blockchain.end(); ++it1) {
+    //std::vector<Transaction*> *it1
+    std::vector<Transaction*>::iterator it2;
+    for(it2 = (*it1).begin(); it2 != (*it1).end(); ++it2){
+      update += std::to_string((*it2)->amount) + " "
+	+ std::to_string((*it2)->from) + " "
+	+ std::to_string((*it2)->to);
+    }
+    update += " chain";
+  }
+  update += " end";
+  return update;
+}
+
+void update_balance(){
+  int bal = 100;
+  std::list<std::vector<Transaction*>>::iterator it1;
+  for(it1 = blockchain.begin(); it1 != blockchain.end(); ++it1) {
+    std::vector<Transaction*>::iterator it2;
+    for(it2 = (*it1).begin(); it2 != (*it1).end(); ++it2){
+      if((*it2)->from == id)
+        bal -= (*it2)->amount;
+      else if ((*it2)->to == id)
+        bal += (*it2)->amount;
+    }
+  }
+  balance = bal;
+}
+
 /* MESSAGE HANDLER THREAD:
  * Handle any message received from UDP/TCP servers and respond accordingly
  */
@@ -13,24 +45,45 @@ void* message_handler(void* arg){
   iss >> std::skipws >> i;
   
   /*
-   * Received: "Prepare <ballot_num> <ballot_id>"
+   * Received: "Prepare <ballot_num> <ballot_id> <depth>"
    * On prepare:
    */
   if(i.compare("Prepare") == 0){
     // Split message up and take values
-    std::string ballot_s, id_s;
+    std::string ballot_s, id_s, depth_s;
     
     iss >> std::skipws >> ballot_s;
     iss >> std::skipws >> id_s;
+    iss >> std::skipws >> depth_s;
     
     int their_ballotnum = stoi(ballot_s);
     int their_id = stoi(id_s);
+    int their_depth = stoi(depth_s);
     
     std::cout << "Received from node " << std::to_string(their_id)
 	      << ": " << msg_s << std::endl;
-    
+
+    // Check depth for stale prepare
+    if (their_depth < depth){
+      std::cout << "Stale Prepare Received, sending update" << std::endl;
+      // Send update
+      // Update amt fr t amt fr t amt fr t chain amt fr t amt fr t amt fr t chain end
+      std::string update = build_update();
+      sendto(socks[their_id], (const char*) update.c_str(), strlen(update.c_str())
+	     , MSG_CONFIRM, (const struct sockaddr*) &servaddrs[their_id],
+	     sizeof(servaddrs[their_id]));
+    }
+
+    else if (their_depth > depth){
+      std::cout << "Depth too low, requesting update" << std::endl;
+      std::string request = "Request " + std::to_string(id);
+      
+      sendto(socks[their_id], (const char*) request.c_str(), strlen(request.c_str())
+	     , MSG_CONFIRM, (const struct sockaddr*) &servaddrs[their_id],
+	     sizeof(servaddrs[their_id]));
+    }
     // ballot check
-    if(their_ballotnum >= ballot_num[0]){
+    else if(their_ballotnum >= ballot_num[0]){
       if(their_ballotnum == ballot_num[0] && their_id < ballot_num[1]){
 	//do nothing, I have higher ballotnum
       }
@@ -93,10 +146,10 @@ void* message_handler(void* arg){
     // ADD CASE: If acceptval isn't empty 
     
     //majority reached:
-    //  broadcast("Accept <ballot_num> <ballot_id> <my_id> <depth> <accept_val> ")
+    //  broadcast("Accept <ballot_num> <ballot_id> <depth> <my id> <accept_val> ")
     if (ack[ballot][ballot_id] == 3){
-      std::string accept_broad = "Accept " + b + " " + i + " " + std::to_string(id)
-	+ " " + std::to_string(depth) + " ";
+      std::string accept_broad = "Accept " + b + " " + i + " " + std::to_string(depth)
+	+ " " + std::to_string(id) + " ";
       
       for(std::vector<Transaction*>::iterator it = queue.begin(); it != queue.end(); ++it) {
 	accept_broad += (std::to_string((*it)->amount));
@@ -105,99 +158,150 @@ void* message_handler(void* arg){
    	accept_broad += " ";
    	accept_broad += (std::to_string((*it)->to));
    	accept_broad += " ";
-       }
-       accept_broad += "end";	
-       broadcast((char*)accept_broad.c_str());
-       queue.clear();
-     }
-     // else less than 3 or greater than 3, do nothing
-   }
+      }
+      accept_broad += "end";	
+      broadcast((char*)accept_broad.c_str());
+      queue.clear();
+    }
+    // else less than 3 or greater than 3, do nothing
+  }
   
-   //Accept <acceptnum> <acceptid> <their.id> <depth> <acceptval> 
-   else if(i.compare("Accept") == 0){
-     std::string anum, aid, av, tid, d;
-     iss >> std::skipws >> anum;
-     iss >> std::skipws >> aid;
-     iss >> std::skipws >> d;
-     iss >> std::skipws >> tid;
+  //Accept <acceptnum> <acceptid> <depth> <my id> <acceptval> 
+  else if(i.compare("Accept") == 0){
+    std::string anum, aid, av, tid, d;
+    iss >> std::skipws >> anum;
+    iss >> std::skipws >> aid;
+    iss >> std::skipws >> d;
+    iss >> std::skipws >> tid;
     
-     int acceptnum = stoi(anum);
-     int acceptid = stoi(aid);
-     int blockdepth = stoi(d);
-     int their_id = stoi(tid);
+    int acceptnum = stoi(anum);
+    int acceptid = stoi(aid);
+    int blockdepth = stoi(d);
+    int their_id = stoi(tid);
     
-     int parseMess = 1;
+    int parseMess = 1;
+
+    std::cout << "Received from node " << std::to_string(their_id) << ": " << msg_s << std::endl;
     
-     if (accepts[acceptnum][acceptid] < 3){
-       std::string amountstr;
-       std::string fromstr;
-       std::string tostr;
+    if (accepts[acceptnum][acceptid] < 3){
+      std::string amountstr;
+      std::string fromstr;
+      std::string tostr;
       
-       iss >> std::skipws >> amountstr;
+      iss >> std::skipws >> amountstr;
       
-       if(amountstr.compare("end") == 0 || accept_val.size() != 0)
+      if(amountstr.compare("end") == 0 || accept_val.size() != 0)
    	parseMess = 0;
       
-       while(parseMess) {
-   	printf("parsemess\n");
-  	iss >> std::skipws >> fromstr;
+      while(parseMess) {
+   	iss >> std::skipws >> fromstr;
    	iss >> std::skipws >> tostr;
    	accept_val.push_back(Transaction(stoi(amountstr), stoi(fromstr), stoi(tostr)));
 	
-         iss >> std::skipws >> amountstr;
-         if(amountstr.compare("end") == 0)
-           parseMess = 0;
-       }
+	iss >> std::skipws >> amountstr;
+	if(amountstr.compare("end") == 0)
+	  parseMess = 0;
+      }
       
-       std::cout << "Received from node " << std::to_string(their_id) << ": " << msg_s << std::endl;
+      std::cout << "Received from node " << std::to_string(their_id) << ": " << msg_s << std::endl;
       
-       // update relevant global accept counter
-       accepts[acceptnum][acceptid]++;
+      // update relevant global accept counter
+      accepts[acceptnum][acceptid]++;
       
-       // Original proposal will have 2 when he receives first accept, but doesn't matter
-       // We want other nodes to broadcast when they're accept reaches 1
-       if (accepts[acceptnum][acceptid] == 1){
-         // build accept message to be broadcast
-	 std::string accept_broad = "Accept " + anum + " " + aid +
-	   " " + std::to_string(id) + " " + std::to_string(blockdepth) + " ";
-         for(std::vector<Transaction>::iterator it = accept_val.begin(); it != accept_val.end(); ++it) {
+      // Original proposal will have 2 when he receives first accept, but doesn't matter
+      // We want other nodes to broadcast when they're accept reaches 1
+      if (accepts[acceptnum][acceptid] == 1){
+	// build accept message to be broadcast
+	std::string accept_broad = "Accept " + anum + " " + aid +
+	  " " + std::to_string(id) + " " + std::to_string(blockdepth) + " ";
+	for(std::vector<Transaction>::iterator it = accept_val.begin(); it != accept_val.end(); ++it) {
           accept_broad += std::to_string((*it).amount);
           accept_broad += " ";
           accept_broad += std::to_string((*it).from);
           accept_broad += " ";
           accept_broad += std::to_string((*it).to);
           accept_broad += " ";
-        }
+	}
         accept_broad += "end";
         broadcast((char*)accept_broad.c_str());
       }
-      // Accept reached majority
-      else if (accepts[acceptnum][acceptid] == 3){
-        // decide
-        std::vector<Transaction*> tempval;
-        for(std::vector<Transaction>::iterator it = accept_val.begin(); it != accept_val.end(); ++it) {
-          Transaction * temp = new Transaction((*it).amount, (*it).from, (*it).to);
-          tempval.push_back(temp);
-        }
-        accept_val.clear();
-        blockchain.push_back(tempval);
-	depth++;
-	update_balance();
+    }
+    // Accept reached majority
+    else if (accepts[acceptnum][acceptid] == 3){
+      // decide
+      std::vector<Transaction*> tempval;
+      for(std::vector<Transaction>::iterator it = accept_val.begin(); it != accept_val.end(); ++it) {
+	Transaction * temp = new Transaction((*it).amount, (*it).from, (*it).to);
+	tempval.push_back(temp);
       }
-      else{
-	//ignore
+      accept_val.clear();
+      blockchain.push_back(tempval);
+      depth++;
+      update_balance();
+    }
+  }
+  // Update amt fr t chain amt fr t chain end
+  else if(i.compare("Update") == 0){
+    std::string amountstr;
+    std::string fromstr;
+    std::string tostr;
+    std::string their_id;
+    Transaction* tx;
+    blockchain.clear(); // out with the old, in with the new
+
+    iss >> std::skipws >> their_id;
+    
+    std::cout << "Received from node " << their_id << ": " << msg_s << std::endl;
+    
+    int parseMess = 1;
+    
+    iss >> std::skipws >> amountstr;
+    
+    if(amountstr.compare("end") == 0 || amountstr.compare("chain"))
+      parseMess = 0;
+    
+    std::vector<Transaction*>* new_block = new std::vector<Transaction*>();
+    while(parseMess) {
+      iss >> std::skipws >> fromstr;
+      iss >> std::skipws >> tostr;
+      
+      tx = new Transaction(stoi(amountstr), stoi(fromstr), stoi(tostr));
+      
+      new_block->push_back(tx);
+      
+      iss >> std::skipws >> amountstr;
+      
+      if(amountstr.compare("chain") == 0){
+	blockchain.push_back(*new_block);
+	new_block = new std::vector<Transaction*>();
       }
-     }
-   }
-   else{
-     printf("unknown message received: %s\n", message);
-   }
+      
+      iss >> std::skipws >> amountstr;
+      
+      if(amountstr.compare("end") == 0)
+	parseMess = 0;
+    }
+    
+  }
+  else if(i.compare("Request") == 0){
+    std::string tid_s;
+    iss >> tid_s;
+    int their_id = stoi(tid_s);
+    std::string update = build_update();
+
+    std::cout << "Received from node " << std::to_string(their_id) << ": " << msg_s << std::endl;
+    
+    sendto(socks[their_id], (const char*) update.c_str(), strlen(update.c_str())
+	   , MSG_CONFIRM, (const struct sockaddr*) &servaddrs[their_id],
+	   sizeof(servaddrs[their_id]));
+  }
+  else{
+    printf("unknown message received: %s\n", message);
+  }
+  
   pthread_exit(NULL);
-}
+} 
 
-
-  
-  
 /* UDP SERVER THREAD:
  *  Always receiving UDP messages for Paxos and sending them to other servers without
  *  checking for liveness of receiver.
@@ -319,19 +423,42 @@ void printblockchain(){
   }
 }
 
-void update_balance(){
-  // go through 
-}
 
-bool amountexceeded(){
-  //check queue
-  //if amount exceeded
-  // return true
-  //else return false
+bool amountexceeded(int amount_s){
+  int sendamt = amount_s;
+  for(std::vector<Transaction*>::iterator it = queue.begin(); it != queue.end(); ++it) {
+    sendamt += (*it)->amount;
+  }
+  return (sendamt >= balance);
 }
 
 void* prop_timeout(void* arg){
   usleep(10000000);
+
+  int sendamt = 0;
+  unsigned int i;
+  for(i = 0; i < queue.size(); ++i) {
+    sendamt += queue[i]->amount;
+    if(sendamt > balance){
+      break;
+    }
+  }
+  // i is the index at which the send amount exceeded balance
+  int remove_index = i;
+  for(i; i < queue.size(); ++i) {
+    std::cout << "Transaction removed, balance exceeded: "
+	      << std::to_string(queue[i]->amount)
+	      << "from " << std::to_string(queue[i]->from)
+	      << " to " << std::to_string(queue[i]->to)
+	      << std::endl;
+  }
+
+  queue.resize(remove_index);
+
+  //if queue is now empty, just exit
+  if(queue.empty())
+    pthread_exit(NULL);
+    
   // <ballot_num++, id>
   ballot_num[0]++;
   ballot_num[1] = id;
@@ -342,10 +469,23 @@ void* prop_timeout(void* arg){
 
   // build message and broadcast
   std::string prep = "Prepare " + std::to_string(ballot_num[0])
-    + " " + std::to_string(ballot_num[1]);
+    + " " + std::to_string(ballot_num[1]) + " " + std::to_string(depth);
   
   broadcast((char*) prep.c_str());
   pthread_exit(NULL);
+}
+
+void printBalance(){
+  std::cout << "Balance: " << balance << std::endl;
+}
+
+void printQueue(){
+  std::cout << "Queue: " << std::endl;
+  for(std::vector<Transaction*>::iterator it = queue.begin(); it != queue.end(); ++it) {
+    std::cout << "Amount: " << std::to_string((*it)->amount) <<
+      " from " << std::to_string((*it)->from) << " to "
+	      << std::to_string((*it)->to) << std::endl;
+  }
 }
 
 int main(int argc, char* argv[]){
@@ -393,7 +533,7 @@ int main(int argc, char* argv[]){
       if(queue.size() >= 10)
 	std::cout << "Queue is full" << std::endl;
 
-      else if(!amountexceeded()){
+      else if(!amountexceeded(stoi(amount_s))){
 	// Create new transaction
 	Transaction* transaction = new Transaction(0,0,0);
 	transaction->amount = stoi(amount_s);
@@ -416,6 +556,10 @@ int main(int argc, char* argv[]){
     else if (i == "printblockchain"){
       printblockchain();
     }
+    else if (i == "printqueue")
+      printQueue();
+    else if(i == "printbalance")
+      printBalance();
     else{
       printf("Command error.\n");
     }
