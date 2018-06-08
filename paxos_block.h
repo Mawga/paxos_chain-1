@@ -13,7 +13,7 @@
 #include <mutex> //mutual exclusion
 
 #include <iostream> //cin, cout, cerr
-#include <stdlib.h> //atoi
+#include <stdlib.h> //atoi rand srand
 #include <unistd.h> //usleep
 
 #include <cstdint> // for intptr_t
@@ -24,6 +24,8 @@
 
 #include <list> //blockchain linked list
 #include <vector> //keep track of majorities
+
+#include <time.h> // time
 
 struct Transaction{
   int to,from,amount;
@@ -53,12 +55,14 @@ int ack[100][5];
 int accepts[100][5];
 // accept_val[ballot_num] tracker
 std::vector<Transaction> accept_val;
+std::vector<Transaction> our_accept_val;
 
 // Network Variables
 std::string servers[5];
 int ports[5];
 struct sockaddr_in servaddrs[5];
 int socks[5];
+bool available_nodes[5] = {true,true,true,true,true};
 
 // Threading Variables (for anyone to start a thread)
 int num_threads = 100;

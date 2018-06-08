@@ -11,7 +11,7 @@ std::string build_update(){
 	+ std::to_string((*it2)->from) + " "
 	+ std::to_string((*it2)->to);
     }
-    update += " chain";
+    update += " chain ";
   }
   update += " end";
   return update;
@@ -69,18 +69,22 @@ void* message_handler(void* arg){
       // Send update
       // Update amt fr t amt fr t amt fr t chain amt fr t amt fr t amt fr t chain end
       std::string update = build_update();
-      sendto(socks[their_id], (const char*) update.c_str(), strlen(update.c_str())
-	     , MSG_CONFIRM, (const struct sockaddr*) &servaddrs[their_id],
-	     sizeof(servaddrs[their_id]));
+      usleep(1000000);
+      if(available_nodes[their_id])
+	sendto(socks[their_id], (const char*) update.c_str(), strlen(update.c_str())
+	       , MSG_CONFIRM, (const struct sockaddr*) &servaddrs[their_id],
+	       sizeof(servaddrs[their_id]));
+      pthread_exit(NULL);
     }
 
     else if (their_depth > depth){
       std::cout << "Depth too low, requesting update" << std::endl;
       std::string request = "Request " + std::to_string(id);
-      
-      sendto(socks[their_id], (const char*) request.c_str(), strlen(request.c_str())
-	     , MSG_CONFIRM, (const struct sockaddr*) &servaddrs[their_id],
-	     sizeof(servaddrs[their_id]));
+      usleep(1000000);
+      if(available_nodes[their_id])
+	sendto(socks[their_id], (const char*) request.c_str(), strlen(request.c_str())
+	       , MSG_CONFIRM, (const struct sockaddr*) &servaddrs[their_id],
+	       sizeof(servaddrs[their_id]));
     }
     // ballot check
     else if(their_ballotnum > ballot_num[0]){
@@ -105,9 +109,11 @@ void* message_handler(void* arg){
       b_msg = b_msg +  " " + "end";
       
       // send
-      sendto(socks[their_id], (const char*) b_msg.c_str(), strlen(b_msg.c_str())
-	     , MSG_CONFIRM, (const struct sockaddr*) &servaddrs[their_id],
-	     sizeof(servaddrs[their_id])); 
+      usleep(1000000);
+      if(available_nodes[their_id])
+	sendto(socks[their_id], (const char*) b_msg.c_str(), strlen(b_msg.c_str())
+	       , MSG_CONFIRM, (const struct sockaddr*) &servaddrs[their_id],
+	       sizeof(servaddrs[their_id])); 
     }
   }
   
@@ -141,6 +147,7 @@ void* message_handler(void* arg){
     
     //majority reached:
     //  broadcast("Accept <ballot_num> <ballot_id> <depth> <my id> <accept_val> ")
+    /*
     if (ack[ballot][ballot_id] == 3){
       std::cout << "Ack majority reached." << std::endl;
       std::string accept_broad = "Accept " + b + " " + i + " " + std::to_string(depth)
@@ -158,6 +165,7 @@ void* message_handler(void* arg){
       broadcast((char*)accept_broad.c_str());
       queue.clear();
     }
+    */
     // else less than 3 or greater than 3, do nothing
   }
   
@@ -177,7 +185,12 @@ void* message_handler(void* arg){
     int parseMess = 1;
 
     std::cout << "Received from node " << std::to_string(their_id) << ": " << msg_s << std::endl;
+      
+    // update relevant global accept counter
+    accepts[acceptnum][acceptid]++;
+
     std::cout << "Accepts: " << std::to_string(accepts[acceptnum][acceptid]) << std::endl;
+      
     
     if (accepts[acceptnum][acceptid] < 3){
       std::string amountstr;
@@ -199,19 +212,16 @@ void* message_handler(void* arg){
 	if(amountstr.compare("end") == 0)
 	  parseMess = 0;
       }
-      
-      std::cout << "Received from node " << std::to_string(their_id) << ": " << msg_s << std::endl;
-      
-      // update relevant global accept counter
-      accepts[acceptnum][acceptid]++;
-      
+     
       // Original proposal will have 2 when he receives first accept, but doesn't matter
       // We want other nodes to broadcast when they're accept reaches 1
       if (accepts[acceptnum][acceptid] == 1){
 	std::cout << "First accept received. Broadcast relay." << std::endl;
 	// build accept message to be broadcast
+	accepts[acceptnum][acceptid]++;
 	std::string accept_broad = "Accept " + anum + " " + aid +
 	  " " + std::to_string(blockdepth) + " " + std::to_string(id) + " ";
+
 	for(std::vector<Transaction>::iterator it = accept_val.begin(); it != accept_val.end(); ++it) {
           accept_broad += std::to_string((*it).amount);
           accept_broad += " ";
@@ -227,17 +237,36 @@ void* message_handler(void* arg){
     // Accept reached majority
     else if (accepts[acceptnum][acceptid] == 3){
       std::cout << "Accept reached majority, decide." << std::endl;
-
+      
       // decide
-      std::vector<Transaction*> tempval;
-      for(std::vector<Transaction>::iterator it = accept_val.begin(); it != accept_val.end(); ++it) {
-	Transaction * temp = new Transaction((*it).amount, (*it).from, (*it).to);
-	tempval.push_back(temp);
+      int checkId = 0;
+      if(acceptid == id){
+	checkId = 1;
       }
-      accept_val.clear();
+      std::vector<Transaction*> tempval;
+      
+      if(checkId){
+	for(std::vector<Transaction>::iterator it = our_accept_val.begin();
+	    it != our_accept_val.end(); ++it) {
+	  Transaction * temp = new Transaction((*it).amount, (*it).from, (*it).to);
+	  tempval.push_back(temp);
+	}
+      }
+      else{
+	for(std::vector<Transaction>::iterator it = accept_val.begin();
+	    it != accept_val.end(); ++it) {
+	  Transaction * temp = new Transaction((*it).amount, (*it).from, (*it).to);
+	  tempval.push_back(temp);
+	}
+      }
       blockchain.push_back(tempval);
+      our_accept_val.clear();
+      accept_val.clear();
       depth++;
       update_balance();
+
+      std::string msg_s = "Decide " + std::to_string(depth) + " " + std::to_string(id);
+      broadcast((char*) msg_s.c_str());
     }
   }
   // Update amt fr t chain amt fr t chain end
@@ -248,7 +277,8 @@ void* message_handler(void* arg){
     std::string their_id;
     Transaction* tx;
     blockchain.clear(); // out with the old, in with the new
-
+    depth = 0;
+    
     iss >> std::skipws >> their_id;
     
     std::cout << "Received from node " << their_id << ": " << msg_s << std::endl;
@@ -257,16 +287,15 @@ void* message_handler(void* arg){
     
     iss >> std::skipws >> amountstr;
 
-    std::cout << amountstr << std::endl;
     
-    if(amountstr.compare("end") == 0 || amountstr.compare("chain")){
+    if(amountstr.compare("end") == 0 || amountstr.compare("chain") == 0){
       parseMess = 0;
       std::cout << "end/chain found as first word" << std::endl;
     }
     
     //std::vector<Transaction*>* new_block = new std::vector<Transaction*>();
     while(parseMess) {
-      std::cout << "while" << std::endl;
+      // std::cout << "while" << std::endl;
       std::vector<Transaction*> new_block;
       while(amountstr.compare("chain") != 0){
 	iss >> std::skipws >> fromstr;
@@ -280,15 +309,13 @@ void* message_handler(void* arg){
       }
       
       blockchain.push_back(new_block);
-
-      printblockchain();//
-      
+      depth++;
       iss >> std::skipws >> amountstr;
       
       if(amountstr.compare("end") == 0)
 	parseMess = 0;
     }
-    
+    update_balance();
   }
   else if(i.compare("Request") == 0){
     std::string tid_s;
@@ -297,10 +324,29 @@ void* message_handler(void* arg){
     std::string update = build_update();
 
     std::cout << "Received from node " << std::to_string(their_id) << ": " << msg_s << std::endl;
+    usleep(1000000);
+    if(available_nodes[their_id])
+      sendto(socks[their_id], (const char*) update.c_str(), strlen(update.c_str())
+	     , MSG_CONFIRM, (const struct sockaddr*) &servaddrs[their_id],
+	     sizeof(servaddrs[their_id]));
+  }
+  else if(i.compare("Decide") == 0){
+    std::string depth_s,req_s;
+    int request_id;
+
+    iss >> depth_s;
+    iss >> req_s;
+    request_id = stoi(req_s);
     
-    sendto(socks[their_id], (const char*) update.c_str(), strlen(update.c_str())
-	   , MSG_CONFIRM, (const struct sockaddr*) &servaddrs[their_id],
-	   sizeof(servaddrs[their_id]));
+    if (stoi(depth_s) > depth){
+      std::cout << "Depth too low, requesting update" << std::endl;
+      std::string request = "Request " + std::to_string(id);
+      usleep(1000000);
+      if(available_nodes[request_id])
+	sendto(socks[request_id], (const char*) request.c_str(), strlen(request.c_str())
+	       , MSG_CONFIRM, (const struct sockaddr*) &servaddrs[request_id],
+	       sizeof(servaddrs[request_id]));
+    }
   }
   else{
     printf("unknown message received: %s\n", message);
@@ -355,7 +401,7 @@ void* udp_server(void*){
     thread_i++;
     pthread_create(&threads[thread_i], NULL, message_handler, (void*) arg);
 
-    //usleep(1000000);
+    usleep(500000);
   }
   pthread_exit(NULL);
 }
@@ -408,8 +454,10 @@ void serversetup(){
 void broadcast(char* input){
   printf("Broadcast: %s\n", input);
   for(int i = 0; i < 5; i++){
-    sendto(socks[i], (const char*) input, strlen(input), MSG_CONFIRM,
-	   (const struct sockaddr*) &servaddrs[i], sizeof(servaddrs[i]));
+    usleep(1000000);
+    if(available_nodes[i])
+      sendto(socks[i], (const char*) input, strlen(input), MSG_CONFIRM,
+	     (const struct sockaddr*) &servaddrs[i], sizeof(servaddrs[i]));
   }
 }
 
@@ -427,6 +475,7 @@ void printblockchain(){
 		<< std::to_string((*it2)->from) << " "
 		<< std::to_string((*it2)->to) << std::endl;
     }
+    std::cout << std::endl;
   }
 }
 
@@ -436,49 +485,93 @@ bool amountexceeded(int amount_s){
   for(std::vector<Transaction*>::iterator it = queue.begin(); it != queue.end(); ++it) {
     sendamt += (*it)->amount;
   }
-  return (sendamt >= balance);
+  return (sendamt > balance);
+}
+
+bool accept_timer(int* arr){
+  usleep(5000000);
+  if(ack[arr[0]][arr[1]] < 3)
+    return false;
+  return true;
+}
+
+bool ack_timer(int* arr){
+  usleep(5000000);
+  if(ack[arr[0]][arr[1]] < 3)
+    return false;
+  return true;
 }
 
 void* prop_timeout(void* arg){
-  usleep(10000000);
-
-  int sendamt = 0;
-  unsigned int i;
-  for(i = 0; i < queue.size(); ++i) {
-    sendamt += queue[i]->amount;
-    if(sendamt > balance){
-      break;
-    }
-  }
-  // i is the index at which the send amount exceeded balance
-  int remove_index = i;
-  for(i; i < queue.size(); ++i) {
-    std::cout << "Transaction removed, balance exceeded: "
-	      << std::to_string(queue[i]->amount)
-	      << "from " << std::to_string(queue[i]->from)
-	      << " to " << std::to_string(queue[i]->to)
-	      << std::endl;
-  }
-
-  queue.resize(remove_index);
-
-  //if queue is now empty, just exit
-  if(queue.empty())
-    pthread_exit(NULL);
+  int curr_ballot[2];
+  int seconds;
+  do{
+    seconds = (rand()% 6000 + 5000)*1000 ;
+    usleep(seconds);
     
-  // <ballot_num++, id>
-  ballot_num[0]++;
-  ballot_num[1] = id;
+    int sendamt = 0;
+    unsigned int i;
+    for(i = 0; i < queue.size(); ++i) {
+      sendamt += queue[i]->amount;
+      if(sendamt > balance){
+	break;
+      }
+    }
+    // i is the index at which the send amount exceeded balance
+    int remove_index = i;
+    for(i; i < queue.size(); ++i) {
+      std::cout << "Transaction removed, balance exceeded: "
+		<< std::to_string(queue[i]->amount)
+		<< "from " << std::to_string(queue[i]->from)
+		<< " to " << std::to_string(queue[i]->to)
+		<< std::endl;
+    }
+    
+    queue.resize(remove_index);
+    
+    //if queue is now empty, just exit
+    if(queue.empty())
+      pthread_exit(NULL);
+    
+    // <ballot_num++, id>
+    ballot_num[0]++;
+    ballot_num[1] = id;
+    
+    curr_ballot[0] = ballot_num[0];
+    curr_ballot[1] = ballot_num[1];
+      
+    //initialized ack to 1 because I count towards majority
+    ack[ballot_num[0]][id]++;
+    accepts[ballot_num[0]][id]++;
+    
+    // build message and broadcast
+    std::string prep = "Prepare " + std::to_string(ballot_num[0])
+      + " " + std::to_string(ballot_num[1]) + " " + std::to_string(depth);
+    
+    broadcast((char*) prep.c_str());
+    
+  }while(!ack_timer(curr_ballot));
   
-  //initialized ack to 1 because I count towards majority
-  ack[ballot_num[0]][id]++;
-  accepts[ballot_num[0]][id]++;
+  std::cout << "Ack majority reached." << std::endl;
 
-  // build message and broadcast
-  std::string prep = "Prepare " + std::to_string(ballot_num[0])
-    + " " + std::to_string(ballot_num[1]) + " " + std::to_string(depth);
+  std::string accept_broad = "Accept " + std::to_string(curr_ballot[0])
+    + " " + std::to_string(curr_ballot[1]) + " " + std::to_string(depth)
+    + " " + std::to_string(id) + " ";
   
-  broadcast((char*) prep.c_str());
+  for(std::vector<Transaction*>::iterator it = queue.begin(); it != queue.end(); ++it) {
+    accept_broad += (std::to_string((*it)->amount));
+    accept_broad += " ";
+    accept_broad += (std::to_string((*it)->from));
+    accept_broad += " ";
+    accept_broad += (std::to_string((*it)->to));
+    accept_broad += " ";
+
+    our_accept_val.push_back(Transaction((*it)->amount,(*it)->from, (*it)->to));
+  }
+  accept_broad += "end";
+  broadcast((char*)accept_broad.c_str());
+  queue.clear();
+  
   pthread_exit(NULL);
 }
 
@@ -500,6 +593,8 @@ int main(int argc, char* argv[]){
   if(argc != 2){
     std::cerr << "Usage: ./paxos_block <id>" << std::endl;
   }
+
+  srand(time(NULL));
 
   // update id accordingly
   id = atoi(argv[1]);
@@ -567,6 +662,17 @@ int main(int argc, char* argv[]){
       printQueue();
     else if(i == "printbalance")
       printBalance();
+    else if(i == "Fail"){
+      std::string fail_s;
+      iss >> fail_s;
+      int fail = stoi(fail_s);
+      available_nodes[fail] = false;
+    }
+    else if(i == "Repair"){
+      std::string rep_s;
+      iss >> rep_s;
+      available_nodes[stoi(rep_s)] = true;
+    }
     else{
       printf("Command error.\n");
     }
