@@ -1,5 +1,6 @@
 # paxos_chain
 CS171 Final Project
+Maga Kim and Mario Infante
 
 Development Plan:
 1. One server takes input "Propose 5", code a function to send proposal to all via UDP
