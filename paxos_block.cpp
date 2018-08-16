@@ -4,7 +4,6 @@ std::string build_update(){
   std::string update = "Update " + std::to_string(id) + " ";
   std::list<std::vector<Transaction*>>::iterator it1;
   for(it1 = blockchain.begin(); it1 != blockchain.end(); ++it1) {
-    //std::vector<Transaction*> *it1
     std::vector<Transaction*>::iterator it2;
     for(it2 = (*it1).begin(); it2 != (*it1).end(); ++it2){
       update += std::to_string((*it2)->amount) + " "
@@ -13,7 +12,7 @@ std::string build_update(){
     }
     update += " chain ";
   }
-  update += " end";
+  update += "end";
   return update;
 }
 
@@ -468,7 +467,6 @@ void printblockchain(){
   std::cout << "Blockchain (Amount, From, To): " << std::endl;
   std::list<std::vector<Transaction*>>::iterator it1;
   for(it1 = blockchain.begin(); it1 != blockchain.end(); ++it1) {
-    //std::vector<Transaction*> *it1
     std::vector<Transaction*>::iterator it2;
     for(it2 = (*it1).begin(); it2 != (*it1).end(); ++it2){
       std::cout << std::to_string((*it2)->amount) << " "
@@ -522,7 +520,7 @@ void* prop_timeout(void* arg){
     for(i; i < queue.size(); ++i) {
       std::cout << "Transaction removed, balance exceeded: "
 		<< std::to_string(queue[i]->amount)
-		<< "from " << std::to_string(queue[i]->from)
+		<< " from " << std::to_string(queue[i]->from)
 		<< " to " << std::to_string(queue[i]->to)
 		<< std::endl;
     }
